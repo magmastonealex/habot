@@ -1,0 +1,59 @@
+{
+	"slackVerifToken": "",
+	"slackBotToken": "",
+	"slackChannelRestrict": "",
+	"actions": [
+		{
+			"id": "vacuum",
+			"chatRegexp": "clean up",
+			"requiresConfirm": true,
+			"message": "wants to start the vacuum. Is that OK?",
+			"haSuccessInvoke": {
+				"domain": "",
+				"service": "",
+				"data": {
+					"entity_id": ""
+				}
+			},
+			"haFailureInvoke": {
+				"domain": "",
+				"service": "",
+				"data": {
+					"entity_id": ""
+				}
+			}
+		},
+		{
+			"id": "nightMode",
+			"chatRegexp": "night mode",
+			"requiresConfirm": false,
+			"message": "No problem. Entering night mode",
+			"haSuccessInvoke": {
+				"domain": "",
+				"service": "",
+				"data": {
+					"entity_id": ""
+				}
+			},
+			"haFailureInvoke": {
+				"domain": "",
+				"service": "",
+				"data": {
+					"entity_id": ""
+				}
+			}
+		}
+	],
+	"fetches": [
+		{
+			"id": "dishwasher",
+			"chatRegexp": "dishwasher",
+			"ha": "group.dishwasher"
+		},
+		{
+			"id": "alexhome",
+			"chatRegexp": "is alex home",
+			"ha": "device_tracker.alex"
+		}
+	]
+}
