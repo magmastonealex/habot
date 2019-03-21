@@ -45,6 +45,8 @@ type GlobalConfiguration struct {
 	SlackVerifToken      string             `json:"slackVerifToken"`
 	SlackBotToken        string             `json:"slackBotToken"`
 	SlackChannelRestrict string             `json:"slackChannelRestrict"`
+	HomeAssistantUrl     string             `json:"homeAssistantUrl"`
+	HomeAssistantKey     string             `json:"homeAssistantKey"`
 	Actions              []ExecutableAction `json:"actions"`
 	ActionsMap           map[string]ExecutableAction
 	Fetches              []ExecutableFetch `json:"fetches"`
@@ -57,9 +59,7 @@ var flightRequests map[string]*InFlightRequest
 // to get this into every single function.
 var globalConfig GlobalConfiguration
 var api *slack.Client
-var ha = homeassistant.HomeAssistant{
-	BaseUrl: "http://10.100.0.3:9123",
-}
+var ha homeassistant.HomeAssistant
 
 func waitOnRequest(messageType string) {
 	timer := time.NewTimer(30 * time.Second)
@@ -100,12 +100,12 @@ func waitOnRequest(messageType string) {
 
 func continueRequest(action string) error {
 	fmt.Printf("Continuing: %s\n", action)
-	return nil
+	return ha.InvokeService(globalConfig.ActionsMap[action].HaSuccessInvoke)
 }
 
 func cancelRequest(action string) error {
 	fmt.Printf("Canceling: %s\n", action)
-	return nil
+	return ha.InvokeService(globalConfig.ActionsMap[action].HaFailureInvoke)
 }
 
 func getSuccessAttachment() slack.Attachment {
@@ -290,15 +290,23 @@ func main() {
 		globalConfig.FetchesMap[ftch.ID] = ftch
 	}
 
+	ha = homeassistant.HomeAssistant{
+		BaseUrl: globalConfig.HomeAssistantUrl,
+		ApiKey:  globalConfig.HomeAssistantKey,
+	}
+
 	api = slack.New(globalConfig.SlackBotToken)
 
 	http.HandleFunc("/events-endpoint", func(w http.ResponseWriter, r *http.Request) {
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(r.Body)
 		body := buf.String()
-		eventsAPIEvent, e := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionVerifyToken(&slackevents.TokenComparator{VerificationToken: ""}))
+		eventsAPIEvent, e := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionVerifyToken(&slackevents.TokenComparator{VerificationToken: globalConfig.SlackVerifToken}))
 		if e != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Println("error:")
+			fmt.Println()
+			fmt.Println(e)
 			return
 		}
 
