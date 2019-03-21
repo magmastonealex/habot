@@ -53,15 +53,10 @@ type GlobalConfiguration struct {
 
 var flightRequests map[string]*InFlightRequest
 
-var CHANNEL_RESTRICT = ""
-var SLACK_TOKEN = ""
-
-// You more than likely want your "Bot User OAuth Access Token" which starts with "xoxb-"
-
 //Ugh. I don't like this. But I also don't feel like doing the plumbing work neccessary
 // to get this into every single function.
 var globalConfig GlobalConfiguration
-var api = slack.New("")
+var api *slack.Client
 var ha = homeassistant.HomeAssistant{
 	BaseUrl: "http://10.100.0.3:9123",
 }
@@ -76,13 +71,13 @@ func waitOnRequest(messageType string) {
 	select {
 	case <-timer.C:
 		fmt.Printf("Timer expired %s, continuing request", messageType)
-		api.UpdateMessage(CHANNEL_RESTRICT, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getTimeExpiredAttachment()))
+		api.UpdateMessage(globalConfig.SlackChannelRestrict, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getTimeExpiredAttachment()))
 	case cont = <-flightRequests[messageType].CompletionChannel:
 		fmt.Printf("Completed with %d.", cont)
 		if cont.Value == true {
-			api.UpdateMessage(CHANNEL_RESTRICT, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getConfirmedByAttachment(cont.UserId)))
+			api.UpdateMessage(globalConfig.SlackChannelRestrict, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getConfirmedByAttachment(cont.UserId)))
 		} else {
-			api.UpdateMessage(CHANNEL_RESTRICT, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getCancelledByAttachment(cont.UserId)))
+			api.UpdateMessage(globalConfig.SlackChannelRestrict, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getCancelledByAttachment(cont.UserId)))
 		}
 	}
 
@@ -90,12 +85,12 @@ func waitOnRequest(messageType string) {
 	if cont.Value {
 		err = continueRequest(messageType)
 		if err != nil {
-			api.UpdateMessage(CHANNEL_RESTRICT, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getConfirmedByAttachment(cont.UserId), getFailureAttachment(err)))
+			api.UpdateMessage(globalConfig.SlackChannelRestrict, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getConfirmedByAttachment(cont.UserId), getFailureAttachment(err)))
 		}
 	} else {
 		err = cancelRequest(messageType)
 		if err != nil {
-			api.UpdateMessage(CHANNEL_RESTRICT, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getCancelledByAttachment(cont.UserId), getFailureAttachment(err)))
+			api.UpdateMessage(globalConfig.SlackChannelRestrict, flightRequests[messageType].InitialMessageTs, flightRequests[messageType].TextPart, slack.MsgOptionAttachments(getCancelledByAttachment(cont.UserId), getFailureAttachment(err)))
 		}
 	}
 
@@ -184,9 +179,9 @@ func startConfirmedRequest(ame *slackevents.AppMentionEvent, typ string) {
 			UserId: ame.User,
 			Value:  true,
 		}
-		api.PostMessage(CHANNEL_RESTRICT, textPart, slack.MsgOptionText("Someone already made that request! Confirming for you...", false))
+		api.PostMessage(globalConfig.SlackChannelRestrict, textPart, slack.MsgOptionText("Someone already made that request! Confirming for you...", false))
 	} else {
-		_, msgTs, _ := api.PostMessage(CHANNEL_RESTRICT, textPart, slack.MsgOptionAttachments(getConfirmationAttachment()))
+		_, msgTs, _ := api.PostMessage(globalConfig.SlackChannelRestrict, textPart, slack.MsgOptionAttachments(getConfirmationAttachment()))
 		flightRequests[typ] = &InFlightRequest{
 			InitialMessageTs:  msgTs,
 			CompletionChannel: make(chan Confirmation),
@@ -216,7 +211,7 @@ func getState(id string) {
 	if err != nil {
 		fmt.Println("[ERROR] Failed to fetch entities")
 		fmt.Println(err)
-		api.PostMessage(CHANNEL_RESTRICT, slack.MsgOptionText("I'm sorry, I encountered an error trying to get that for you.", false))
+		api.PostMessage(globalConfig.SlackChannelRestrict, slack.MsgOptionText("I'm sorry, I encountered an error trying to get that for you.", false))
 		return
 	}
 
@@ -227,7 +222,7 @@ func getState(id string) {
 		}
 	}
 
-	api.PostMessage(CHANNEL_RESTRICT, slack.MsgOptionText(getDataText(friendlyName), false), slack.MsgOptionAttachments(attachments...))
+	api.PostMessage(globalConfig.SlackChannelRestrict, slack.MsgOptionText(getDataText(friendlyName), false), slack.MsgOptionAttachments(attachments...))
 }
 
 func mentionRouter(ame *slackevents.AppMentionEvent) error {
@@ -239,9 +234,9 @@ func mentionRouter(ame *slackevents.AppMentionEvent) error {
 			} else {
 				err := continueRequest(act.ID)
 				if err == nil {
-					api.PostMessage(CHANNEL_RESTRICT, slack.MsgOptionText(act.Message, false))
+					api.PostMessage(globalConfig.SlackChannelRestrict, slack.MsgOptionText(act.Message, false))
 				} else {
-					api.PostMessage(CHANNEL_RESTRICT, slack.MsgOptionText(fmt.Sprintf("I'm sorry, I encountered an error: %s", err.Error()), false))
+					api.PostMessage(globalConfig.SlackChannelRestrict, slack.MsgOptionText(fmt.Sprintf("I'm sorry, I encountered an error: %s", err.Error()), false))
 				}
 			}
 			return nil
@@ -255,7 +250,7 @@ func mentionRouter(ame *slackevents.AppMentionEvent) error {
 		}
 	}
 
-	api.PostMessage(CHANNEL_RESTRICT, slack.MsgOptionText("I'm sorry, I don't know what that means", false))
+	api.PostMessage(globalConfig.SlackChannelRestrict, slack.MsgOptionText("I'm sorry, I don't know what that means", false))
 	return nil
 }
 
@@ -295,6 +290,8 @@ func main() {
 		globalConfig.FetchesMap[ftch.ID] = ftch
 	}
 
+	api = slack.New(globalConfig.SlackBotToken)
+
 	http.HandleFunc("/events-endpoint", func(w http.ResponseWriter, r *http.Request) {
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(r.Body)
@@ -319,7 +316,7 @@ func main() {
 			switch ev := innerEvent.Data.(type) {
 			case *slackevents.AppMentionEvent:
 				{
-					if ev.Channel == CHANNEL_RESTRICT {
+					if ev.Channel == globalConfig.SlackChannelRestrict {
 						fmt.Printf("[INFO] Got AppMentionEvent. %s from %s in %s\n", ev.Text, ev.User, ev.Channel)
 						mentionRouter(ev)
 					}
@@ -341,7 +338,7 @@ func main() {
 			return
 		}
 
-		if decoded.Token != SLACK_TOKEN {
+		if decoded.Token != globalConfig.SlackVerifToken {
 			fmt.Printf("[WARN] Slack token mismatch: %s\n", decoded.Token)
 			w.WriteHeader(http.StatusBadRequest)
 			return
